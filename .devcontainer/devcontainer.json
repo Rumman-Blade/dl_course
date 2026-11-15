@@ -1,0 +1,11 @@
+{
+  "name": "dl-course",
+  "image": "mcr.microsoft.com/devcontainers/python:3.13",
+  "postCreateCommand": "pip install -r requirements-dev.txt",
+  "forwardPorts": [8000, 8501],
+  "portsAttributes": {
+    "8000": {"label": "FastAPI (keep private)"},
+    "8501": {"label": "Streamlit app", "onAutoForward": "openBrowser"}
+  },
+  "customizations": {"vscode": {"extensions": ["ms-python.python", "ms-toolsai.jupyter"]}}
+}
