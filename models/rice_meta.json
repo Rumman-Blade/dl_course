@@ -1,0 +1,13 @@
+{
+ "classes": [
+  "Blast",
+  "Narrow_Brown_Spot",
+  "Normal_Leaf",
+  "Sheath_Blight",
+  "Tungro"
+ ],
+ "image_size": [
+  160,
+  160
+ ]
+}
