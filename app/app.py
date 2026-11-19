@@ -72,9 +72,12 @@ if (DATA / "samples").exists():
     CLASSES = ["Blast", "Narrow_Brown_Spot", "Normal_Leaf", "Sheath_Blight", "Tungro"]
     SAMPLES = sorted((DATA / "samples").glob("*.jpg"))   # 15 test photos (D4-12)
 
-    def ask(path_or_file, endpoint="predict_image"):   # send one photo to the API
+    def ask(path_or_file, endpoint="predict_image", **params):   # send one photo to the API
         data = path_or_file.read_bytes() if isinstance(path_or_file, Path) else path_or_file.getvalue()
-        return requests.post(f"{API}/{endpoint}", files={"file": ("photo.jpg", data)}).json()
+        return requests.post(f"{API}/{endpoint}", params=params, files={"file": ("photo.jpg", data)}).json()
+
+    health = requests.get(f"{API}/health").json()
+    st.caption(f"Doctor in charge: {health['rice_model']}")
 
     game, yours, see = st.tabs(["Human vs CNN", "Your photo", "What the CNN sees"])
     s.setdefault("pic", random.choice(SAMPLES)); s.setdefault("score", {"Class": 0, "CNN": 0}); s.setdefault("done", False)
@@ -82,22 +85,33 @@ if (DATA / "samples").exists():
     with game:
         st.image(str(s.pic), width=320)
         guess = st.radio("The class votes:", CLASSES, horizontal=True)
+        two = "CNN" not in health["rice_model"]                # Chapter 5: CNN (Class 4) vs MobileNet (Class 5)
         if st.button("Show the answer") and not s.done:
-            truth, out = s.pic.name.split("__")[0], ask(s.pic)
-            s.score["Class"] += guess == truth; s.score["CNN"] += out["top_class"] == truth; s.done = True
-            st.success(f"Truth: {truth}  |  CNN: {out['top_class']} ({out['probability']:.0%})")
-        left, right = st.columns(2)
-        left.metric("Class", s.score["Class"]); right.metric("CNN", s.score["CNN"])
+            truth, cnn = s.pic.name.split("__")[0], ask(s.pic, model="cnn")
+            s.score["Class"] += guess == truth; s.score["CNN"] += cnn["top_class"] == truth; s.done = True
+            msg = f"Truth: {truth}  |  CNN: {cnn['top_class']} ({cnn['probability']:.0%})"
+            if two:
+                mob = ask(s.pic)
+                s.score["MobileNet"] = s.score.get("MobileNet", 0) + (mob["top_class"] == truth)
+                msg += f"  |  MobileNet: {mob['top_class']} ({mob['probability']:.0%})"
+            st.success(msg)
+        board = st.columns(3 if two else 2)
+        for col, who in zip(board, ["Class", "CNN", "MobileNet"]):
+            col.metric(who, s.score.get(who, 0))
         if st.button("Next photo"):
             s.pic, s.done = random.choice(SAMPLES), False
             st.rerun()
 
     with yours:
         photo = st.camera_input("Take a photo") if st.toggle("Use the camera") else st.file_uploader("Upload a photo", type=["jpg", "jpeg", "png"])
+        t = st.slider("Not-sure threshold", 0.0, 1.0, float(health["rice_threshold"]), 0.01)   # Chapter 5
         if photo:
-            out = ask(photo)
+            out = ask(photo, threshold=t)
             st.image(photo, width=320)
-            st.subheader(f"CNN: {out['top_class']} ({out['probability']:.0%})")
+            if out["decision"] == "not_sure":
+                st.warning(f"Not sure ({out['top_class']}?, {out['probability']:.0%}). Ask an agriculture officer.")
+            else:
+                st.success(f"{out['model']}: {out['top_class']} ({out['probability']:.0%})")
             st.bar_chart({"probability": out["probabilities"]}, horizontal=True)
 
     with see:

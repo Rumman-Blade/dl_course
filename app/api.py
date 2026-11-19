@@ -25,14 +25,20 @@ async def lifespan(app):
     state["threshold"] = json.loads(meta.read_text())["threshold"] if meta.exists() else 0.5
     # Chapter 4: the rice leaf CNN (only when rice_cnn.keras is in models/)
     if (MODELS / "rice_cnn.keras").exists():
-        state["rice"] = keras.models.load_model(MODELS / "rice_cnn.keras")
-        state["classes"] = json.loads((MODELS / "rice_meta.json").read_text())["classes"]
-        state["see"] = keras.Model(state["rice"].inputs, state["rice"].get_layer("relu_16").output)
+        rice = json.loads((MODELS / "rice_meta.json").read_text())
+        state["classes"] = rice["classes"]
+        state["cnn"] = keras.models.load_model(MODELS / "rice_cnn.keras")
+        state["see"] = keras.Model(state["cnn"].inputs, state["cnn"].get_layer("relu_16").output)
+        # Chapter 5: rice_meta.json names the best model (MobileNetV2) and its not-sure threshold
+        best = rice.get("model_file", "rice_cnn.keras")
+        state["rice"] = state["cnn"] if best == "rice_cnn.keras" else keras.models.load_model(MODELS / best)
+        state["rice_model"] = rice.get("model_name", "CNN (Class 4)")
+        state["rice_threshold"] = rice.get("not_sure_threshold", 0.0)
     yield
     state.clear()
 
 
-app = FastAPI(title="Practical Deep Learning - credit network and rice leaf CNN", lifespan=lifespan)
+app = FastAPI(title="Practical Deep Learning - credit network and rice leaf doctor", lifespan=lifespan)
 
 # ---------- Chapter 1: hand-traced 2-3-2 network (unchanged) ----------
 # Same weights as notebook cell D1-09
@@ -53,7 +59,8 @@ class Inputs(BaseModel):
 @app.get("/health")
 def health():
     return {"status": "ok", "model_loaded": "model" in state, "threshold": state.get("threshold"),
-            "rice_cnn_loaded": "rice" in state}
+            "rice_cnn_loaded": "rice" in state, "rice_model": state.get("rice_model"),
+            "rice_threshold": state.get("rice_threshold")}
 
 
 @app.post("/forward")
@@ -123,11 +130,16 @@ def read_leaf(data: bytes):
 
 
 @app.post("/predict_image")
-async def predict_image(file: UploadFile = File(...)):
+async def predict_image(file: UploadFile = File(...), threshold: float | None = Query(None, ge=0.0, le=1.0),
+                        model: str = Query("best", pattern="^(best|cnn)$")):
     x = read_leaf(await file.read())
-    p = state["rice"].predict(x, verbose=0)[0]
-    return {"top_class": state["classes"][int(p.argmax())], "probability": round(float(p.max()), 4),
-            "probabilities": dict(zip(state["classes"], p.round(4).tolist()))}
+    p = state["rice" if model == "best" else "cnn"].predict(x, verbose=0)[0]
+    t = state["rice_threshold"] if threshold is None else threshold    # Chapter 5: below t -> "not_sure"
+    top = state["classes"][int(p.argmax())]
+    return {"top_class": top, "probability": round(float(p.max()), 4),
+            "probabilities": dict(zip(state["classes"], p.round(4).tolist())),
+            "decision": top if p.max() >= t else "not_sure", "threshold": t,
+            "model": state["rice_model"] if model == "best" else "CNN (Class 4)"}
 
 
 @app.post("/feature_maps")
