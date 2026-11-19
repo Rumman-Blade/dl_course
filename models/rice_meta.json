@@ -9,5 +9,8 @@
  "image_size": [
   160,
   160
- ]
+ ],
+ "model_file": "rice_tl.keras",
+ "model_name": "MobileNetV2 fine-tuned (Class 5)",
+ "not_sure_threshold": 0.95
 }
